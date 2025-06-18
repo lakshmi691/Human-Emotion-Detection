@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion and Gender Detection</title>
+    <style>
+        /* Reset */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Body */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Header */
+        header {
+            background: #35424a;
+            color: #ffffff;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+        }
+
+        /* Container */
+        .container {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        /* Buttons */
+        button {
+            background: #5cb85c;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 8px;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #4cae4c;
+            transform: scale(1.05);
+        }
+
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* Timer and History */
+        #timer,
+        #averageTime {
+            font-size: 20px;
+            margin: 10px 0;
+        }
+
+        ul {
+            list-style: none;
+            margin-top: 20px;
+        }
+
+        li {
+            background: #e7f7e7;
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        /* Chart */
+        canvas {
+            margin-top: 20px;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Emotion and Gender Detection</h1>
+    </header>
+    <div class="container">
+        <img id="videoFeed" src="" alt="Video Feed" style="display: none; max-width: 100%; border-radius: 8px;">
+        <div>
+            <button id="startButton">Start Identifying</button>
+            <button id="stopButton" disabled>Stop</button>
+            <button id="resetHistoryButton">Reset History</button>
+        </div>
+        <div id="timer">Time: 0s</div>
+        <div id="averageTime">Average Time: 0s</div>
+        <h2>History</h2>
+        <ul id="historyList"></ul>
+        <canvas id="emotionChart" width="400" height="200"></canvas>
+    </div>
+    <script>
+        let isIdentifying = false;
+        let timer = 0;
+        let interval;
+        let totalTime = 0;
+        let sessions = 0;
+
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const resetHistoryButton = document.getElementById('resetHistoryButton');
+        const videoFeed = document.getElementById('videoFeed');
+        const timerDisplay = document.getElementById('timer');
+        const averageTimeDisplay = document.getElementById('averageTime');
+        const historyList = document.getElementById('historyList');
+
+        const ctx = document.getElementById('emotionChart').getContext('2d');
+        const emotionChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: [], // Emotion labels
+                datasets: [{
+                    label: 'Emotion Distribution',
+                    data: [], // Emotion data
+                    backgroundColor: ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0', '#9966ff'],
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: { position: 'top' },
+                    title: { display: true, text: 'Emotion Distribution' }
+                }
+            }
+        });
+
+        function startIdentifying() {
+            if (!isIdentifying) {
+                isIdentifying = true;
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                videoFeed.style.display = 'block';
+                videoFeed.src = "{{ url_for('video_feed') }}";
+                timer = 0;
+                timerDisplay.textContent = "Time: 0s";
+
+                interval = setInterval(() => {
+                    timer++;
+                    timerDisplay.textContent = `Time: ${timer}s`;
+                }, 1000);
+            }
+        }
+
+        function stopIdentifying() {
+            if (isIdentifying) {
+                isIdentifying = false;
+                clearInterval(interval);
+                videoFeed.style.display = 'none';
+                videoFeed.src = "";
+                startButton.disabled = false;
+                stopButton.disabled = true;
+
+                // Fetch updated emotion counts from the backend
+                fetch('/emotion_counts')
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Emotion Counts:", data); // Debugging
+                        updateEmotionChart(data);
+                        logHistory(timer, "Session Stopped");
+                        updateAverageTime(timer);
+                    })
+                    .catch(error => console.error("Error fetching emotion counts:", error));
+            }
+        }
+
+        function updateEmotionChart(emotionCounts) {
+            // Clear previous chart data
+            emotionChart.data.labels = [];
+            emotionChart.data.datasets[0].data = [];
+
+            // Populate new data
+            for (let [emotion, count] of Object.entries(emotionCounts)) {
+                emotionChart.data.labels.push(emotion);
+                emotionChart.data.datasets[0].data.push(count);
+            }
+            emotionChart.update();
+        }
+
+        function logHistory(duration, detectedEmotion) {
+            const li = document.createElement('li');
+            li.textContent = `Session: ${duration}s - Emotion: ${detectedEmotion}`;
+            historyList.appendChild(li);
+        }
+
+        function updateAverageTime(duration) {
+            totalTime += duration;
+            sessions++;
+            const average = (totalTime / sessions).toFixed(2);
+            averageTimeDisplay.textContent = `Average Time: ${average}s`;
+        }
+
+        function resetHistory() {
+            historyList.innerHTML = '';
+            totalTime = 0;
+            sessions = 0;
+            averageTimeDisplay.textContent = "Average Time: 0s";
+
+            // Reset chart
+            emotionChart.data.labels = [];
+            emotionChart.data.datasets[0].data = [];
+            emotionChart.update();
+        }
+
+        startButton.addEventListener('click', startIdentifying);
+        stopButton.addEventListener('click', stopIdentifying);
+        resetHistoryButton.addEventListener('click', resetHistory);
+    </script>
+</body>
+</html>
